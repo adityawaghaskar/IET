@@ -1,56 +1,109 @@
 #include <WiFi.h>
+#include <WebServer.h>
 
 const char* ssid = "SwitchNetwork";
 const char* password = "SwitchPassword";
-const char* switchIP = "192.168.4.1"; // IP address of the switch
+const int LED_BUILTIN_PIN = 2; // Define the pin connected to the built-in LED
+
+WebServer server(80);
+
+const unsigned int MAX_CONNECTIONS = 2; // Maximum allowed connections before intrusion detection
+const unsigned long DETECTION_INTERVAL = 500; // Interval for checking intrusion (in milliseconds)
+
+bool intrusionDetected = false;
+
+void handleRoot() {
+  String statusMessage = "<h1>Intrusion Detection System</h1>";
+
+  // Add CSS for responsive design
+  statusMessage += "<style>body {font-family: Arial, sans-serif; text-align: center;}"
+                   "@media only screen and (max-width: 600px) {h1 {font-size: 1.5em;}}</style>";
+
+  // Determine font color based on intrusion detection status
+  String status;
+  String fontColor;
+  if (intrusionDetected) {
+    status = "Intrusion Detected";
+    fontColor = "red";
+  } else {
+    status = "No Intruders!!";
+    fontColor = "green";
+  }
+
+  // Display status message with appropriate font color
+  statusMessage += "<p>Status: <span style='color: " + fontColor + ";'>" + status + "</span></p>";
+
+  // Send the response
+  server.send(200, "text/html", statusMessage);
+}
+
 
 void setup() {
   Serial.begin(115200);
-  pinMode(LED_BUILTIN, OUTPUT); // Set the built-in LED pin as output
-  digitalWrite(LED_BUILTIN, LOW); // Initially turn off the LED
 
-  // Connect to Switch's Wi-Fi network
-  WiFi.begin(ssid, password);
-  Serial.print("Connecting to Switch's Wi-Fi...");
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println("Connected");
+  // Configure ESP32 as Access Point
+  WiFi.softAP(ssid, password);
+  Serial.println("Access Point created");
 
-  Serial.print("Switch IP address: ");
-  Serial.println(switchIP);
+  // Initialize web server
+  server.on("/", HTTP_GET, handleRoot);
+  server.begin();
+  Serial.println("Web server started");
+
+  // Set LED pin as output
+  pinMode(LED_BUILTIN_PIN, OUTPUT);
+
+  // Print initial memory usage
+  Serial.print("Initial free memory: ");
+  Serial.println(ESP.getFreeHeap());
 }
 
 void loop() {
-  // Request status from switch and handle safe mode activation
-  WiFiClient client;
-  if (client.connect(switchIP, 80)) {
-    client.print("GET / HTTP/1.1\r\n");
-    client.print("Host: ");
-    client.print(switchIP);
-    client.print("\r\n\r\n");
-    while (client.connected() && !client.available()) delay(1);
-    while (client.available()) {
-      String line = client.readStringUntil('\r');
-      Serial.print(line);
-      // Parse the response and activate safe mode if intrusion detected
-      if (line.indexOf("Intrusion Detected") != -1) {
-        activateSafeMode();
-      }
-    }
-    client.stop();
+  static unsigned long previousMillis = 0;
+  unsigned long currentMillis = millis();
+
+  // Check for intrusion periodically
+  if (currentMillis - previousMillis >= DETECTION_INTERVAL) {
+    checkIntrusion();
+    previousMillis = currentMillis;
   }
-  delay(5000); // Adjust polling interval as needed
+
+  // Handle web server client requests
+  server.handleClient();
+}
+
+void checkIntrusion() {
+  int packetCount = WiFi.softAPgetStationNum(); // Get the number of connected stations (clients)
+
+  // Print packet count for debugging
+  Serial.print("Current number of requests: ");
+  Serial.println(packetCount);
+
+  // Adjust threshold dynamically based on network activity
+  unsigned int threshold = MAX_CONNECTIONS;
+
+  // Perform intrusion detection
+  if (packetCount > threshold) {
+    intrusionDetected = true;
+    Serial.println("Intrusion Detected");
+    activateSafeMode();
+  } else {
+    intrusionDetected = false;
+    Serial.println("No Intrusion Detected");
+  }
+
+  // Print free memory for monitoring resource usage
+  Serial.print("Free memory: ");
+  Serial.println(ESP.getFreeHeap());
 }
 
 void activateSafeMode() {
   // Code to activate safe mode (e.g., turn on specific operations, deactivate critical functions)
-  // For demonstration, we will just blink the LED rapidly
+  // Blink the LED rapidly
   for (int i = 0; i < 5; i++) {
-    digitalWrite(LED_BUILTIN, HIGH);
+    digitalWrite(LED_BUILTIN_PIN, HIGH);
     delay(100);
-    digitalWrite(LED_BUILTIN, LOW);
+    digitalWrite(LED_BUILTIN_PIN, LOW);
     delay(100);
   }
 }
