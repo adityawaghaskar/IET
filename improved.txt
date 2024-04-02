@@ -1,0 +1,190 @@
+#include <WiFi.h>
+#include <WebServer.h>
+
+const char* ssid = "SwitchNetwork";
+const char* password = "SwitchPassword";
+const int LED_BUILTIN_PIN = 2;
+
+WebServer server(80);
+
+const unsigned int MAX_CONNECTIONS = 2;
+const unsigned long DETECTION_INTERVAL = 50;
+
+bool intrusionDetected = false;
+int previousClients = 0;
+
+void setup() {
+  Serial.begin(115200);
+  connectToWiFi();
+  setupWebServer();
+  pinMode(LED_BUILTIN_PIN, OUTPUT);
+}
+
+void loop() {
+  server.handleClient();
+  unsigned int currentClients = WiFi.softAPgetStationNum();
+  if (currentClients != previousClients) {
+    previousClients = currentClients;
+    checkIntrusion();
+  }
+}
+
+void connectToWiFi() {
+  Serial.print("Connecting to Wi-Fi...");
+  WiFi.softAP(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("Connected");
+}
+
+void setupWebServer() {
+  server.on("/", HTTP_GET, handleRoot);
+  server.on("/status", HTTP_GET, handleStatus);
+  server.begin();
+  Serial.println("Web server started");
+}
+
+void handleRoot() {
+  String statusMessage = "<!DOCTYPE html>"
+                         "<html>"
+                         "<head>"
+                         "<meta charset='UTF-8'>"
+                         "<meta name='viewport' content='width=device-width, initial-scale=1.0'>"
+                         "<title>Intrusion Detection System</title>"
+                         "<style>"
+                         "body {"
+                         "  font-family: Arial, sans-serif;"
+                         "  text-align: center;"
+                         "  background-color: #f0f0f0;"
+                         "}"
+                         "h1 {"
+                         "  font-size: 3em;"
+                         "  margin-bottom: 30px;"
+                         "}"
+                         ".status {"
+                         "  font-size: 2em;"
+                         "  margin-top: 20px;"
+                         "}"
+                         "</style>"
+                         "<script>"
+                         "function updateStatus(status) {"
+                         "  var statusElement = document.getElementById('status');"
+                         "  statusElement.textContent = status;"
+                         "  statusElement.style.color = status === 'Intrusion Detected' ? 'red' : 'green';"
+                         "}"
+                         "function getStatus() {"
+                         "  var xhttp = new XMLHttpRequest();"
+                         "  xhttp.onreadystatechange = function() {"
+                         "    if (this.readyState == 4 && this.status == 200) {"
+                         "      updateStatus(this.responseText);"
+                         "    }"
+                         "  };"
+                         "  xhttp.open('GET', '/status', true);"
+                         "  xhttp.send();"
+                         "}"
+                         "setInterval(getStatus, 5000);" // Update status every 5 seconds
+                         "</script>"
+                         "</head>"
+                         "<body>"
+                         "<h1>Intrusion Detection System</h1>"
+                         "<p class='status' id='status'>Loading...</p>"
+                         "</body>"
+                         "</html>";
+
+  // Send the response
+  server.send(200, "text/html", statusMessage);
+}
+
+void handleStatus() {
+  String status = intrusionDetected ? "Intrusion Detected" : "No Intrusion Detected";
+  server.send(200, "text/plain", status);
+}
+
+void checkIntrusion() {
+  int currentClients = WiFi.softAPgetStationNum();
+  if (currentClients > MAX_CONNECTIONS) {
+    intrusionDetected = true;
+    activateSafeMode();
+  } else {
+    intrusionDetected = false;
+  }
+}
+
+void activateSafeMode() {
+  // Implement action to handle intrusion
+  Serial.println("Intrusion Detected!");
+  for (int i = 0; i < 5; i++) {
+    digitalWrite(LED_BUILTIN_PIN, HIGH);
+    delay(100);
+    digitalWrite(LED_BUILTIN_PIN, LOW);
+    delay(100);
+  }
+}
+
+
+
+
+
+
+
+
+
+
+#include <WiFi.h>
+
+const char* ssid = "SwitchNetwork";
+const char* password = "SwitchPassword";
+const char* switchIP = "192.168.4.1";
+
+const unsigned long POLL_INTERVAL = 5000; // Polling interval in milliseconds
+
+void setup() {
+  Serial.begin(115200);
+  connectToWiFi();
+}
+
+void loop() {
+  requestSwitchStatus();
+  delay(POLL_INTERVAL);
+}
+
+void connectToWiFi() {
+  Serial.print("Connecting to Wi-Fi...");
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("Connected");
+}
+
+void requestSwitchStatus() {
+  WiFiClient client;
+  if (!client.connect(switchIP, 80)) {
+    Serial.println("Failed to connect to switch.");
+    return;
+  }
+
+  client.print("GET / HTTP/1.1\r\n");
+  client.print("Host: ");
+  client.print(switchIP);
+  client.print("\r\n\r\n");
+
+  while (client.connected() && !client.available()) delay(1);
+
+  String response = client.readStringUntil('\r');
+  Serial.println(response);
+
+  if (response.indexOf("Intrusion Detected") != -1) {
+    handleIntrusion();
+  }
+
+  client.stop();
+}
+
+void handleIntrusion() {
+  Serial.println("Intrusion Detected!");
+  // Implement action to handle intrusion
+}
